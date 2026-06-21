@@ -1,9 +1,19 @@
 'use client';
 
-import { Home, Plug, FileText, Network, Bot, Search, Settings, Hexagon, BrainCircuit } from 'lucide-react';
+import { Home, Plug, FileText, Network, Bot, Search, Settings, Hexagon, BrainCircuit, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type Page = 'dashboard' | 'connections' | 'content' | 'graph' | 'assignments' | 'search' | 'llm' | 'settings' | 'agents';
+export type Page =
+  | 'dashboard'
+  | 'connections'
+  | 'content'
+  | 'graph'
+  | 'assignments'
+  | 'agentsDashboard'
+  | 'agents'
+  | 'search'
+  | 'llm'
+  | 'settings';
 
 interface SidebarProps {
   activePage: Page;
@@ -17,6 +27,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: 'content', label: 'Content Library', icon: FileText },
   { id: 'graph', label: 'Knowledge Graph', icon: Network },
   { id: 'assignments', label: 'AI Assignments', icon: Bot },
+  { id: 'agentsDashboard', label: 'AI Agent Dashboard', icon: LayoutDashboard },
   { id: 'agents', label: 'AI Agents', icon: BrainCircuit },
   { id: 'search', label: 'NLQ Search', icon: Search },
   { id: 'llm', label: 'LLM Studio', icon: BrainCircuit },

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { CMSConnection, ContentItem, Assignment, ActivityLog, QueryHistory } from '@/lib/types';
+import { apiGet, apiJson } from '@/lib/api';
 
 const DEMO_CONNECTIONS: CMSConnection[] = [
   { id: 'wp1', name: 'Tech Blog', type: 'wordpress', url: 'https://techblog.example.com', apiKey: 'wp_key_xxx', status: 'connected', createdAt: new Date().toISOString() },
@@ -68,70 +69,91 @@ export function useCMS() {
   const [queryHistory, setQueryHistory] = useState<QueryHistory[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load data from localStorage
+  // Load data from DB (MySQL via API)
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
-    const storedConnections = localStorage.getItem('cms_connections');
-    const storedContent = localStorage.getItem('cms_content');
-    const storedAssignments = localStorage.getItem('cms_assignments');
-    const storedActivityLog = localStorage.getItem('cms_activity');
-    const storedQueryHistory = localStorage.getItem('cms_query_history');
-    
-    if (storedConnections) {
-      setConnections(JSON.parse(storedConnections));
-    } else {
-      setConnections(DEMO_CONNECTIONS);
-      localStorage.setItem('cms_connections', JSON.stringify(DEMO_CONNECTIONS));
-    }
-    
-    if (storedContent) {
-      setContent(JSON.parse(storedContent));
-    } else {
-      setContent(DEMO_CONTENT);
-      localStorage.setItem('cms_content', JSON.stringify(DEMO_CONTENT));
-    }
-    
-    if (storedAssignments) {
-      setAssignments(JSON.parse(storedAssignments));
-    }
-    
-    if (storedActivityLog) {
-      setActivityLog(JSON.parse(storedActivityLog));
-    }
-    
-    if (storedQueryHistory) {
-      setQueryHistory(JSON.parse(storedQueryHistory));
-    }
-    
-    setIsLoaded(true);
+
+    (async () => {
+      try {
+        const [dbConnections, dbContent, dbAssignments, dbLogs] = await Promise.all([
+          apiGet<any[]>('/api/cms/connections').catch(err => {
+            console.error('Failed to fetch connections:', err);
+            return null;
+          }),
+          apiGet<any[]>('/api/cms/content').catch(err => {
+            console.error('Failed to fetch content:', err);
+            return null;
+          }),
+          apiGet<any[]>('/api/cms/assignments').catch(err => {
+            console.error('Failed to fetch assignments:', err);
+            return null;
+          }),
+          apiGet<any[]>('/api/cms/logs').catch(err => {
+            console.error('Failed to fetch logs:', err);
+            return null;
+          }),
+        ]);
+
+
+
+        if (dbConnections) {
+          setConnections(dbConnections.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+            url: c.url,
+            apiKey: c.apiKey,
+            status: c.status,
+            createdAt: c.createdAt,
+          })));
+        } else {
+          setConnections(DEMO_CONNECTIONS);
+        }
+
+        if (dbContent) {
+          setContent(dbContent.map((i: any) => ({
+            id: i.id,
+            cmsId: i.cmsId,
+            title: i.title,
+            body: i.body,
+            author: i.author,
+            status: i.status,
+            date: i.date,
+            tags: Array.isArray(i.tags) ? i.tags : [],
+            wordCount: i.wordCount,
+          })));
+        } else {
+          setContent(DEMO_CONTENT);
+        }
+
+        if (dbAssignments) {
+          setAssignments(dbAssignments.map((a: any) => ({
+            id: a.id,
+            contentId: a.contentId,
+            title: a.title,
+            description: a.description,
+            priority: a.priority,
+            suggestedAction: a.suggestedAction,
+            status: a.status,
+            createdAt: a.createdAt,
+          })));
+        }
+
+        if (dbLogs) {
+          setActivityLog(dbLogs);
+        }
+
+
+
+      } catch (err) {
+        console.error('CMS loading error:', err);
+        setConnections(DEMO_CONNECTIONS);
+        setContent(DEMO_CONTENT);
+      } finally {
+        setIsLoaded(true);
+      }
+    })();
   }, []);
-
-  // Save data to localStorage
-  useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem('cms_connections', JSON.stringify(connections));
-  }, [connections, isLoaded]);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem('cms_content', JSON.stringify(content));
-  }, [content, isLoaded]);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem('cms_assignments', JSON.stringify(assignments));
-  }, [assignments, isLoaded]);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem('cms_activity', JSON.stringify(activityLog));
-  }, [activityLog, isLoaded]);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    localStorage.setItem('cms_query_history', JSON.stringify(queryHistory));
-  }, [queryHistory, isLoaded]);
 
   const logActivity = useCallback((action: string, details: string) => {
     const newLog: ActivityLog = {
@@ -144,23 +166,51 @@ export function useCMS() {
   }, []);
 
   const addConnection = useCallback((connection: Omit<CMSConnection, 'id' | 'createdAt' | 'status'>) => {
-    const newConnection: CMSConnection = {
+    const tempId = `tmp_${Date.now()}`;
+    const temp: CMSConnection = {
       ...connection,
-      id: `cms_${Date.now()}`,
+      id: tempId,
       status: 'connected',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
-    setConnections(prev => [...prev, newConnection]);
+    
+    // Add temp connection immediately for optimistic UI
+    setConnections(prev => [temp, ...prev]);
     logActivity('Connection Added', `Added ${connection.type} connection: ${connection.name}`);
-    return newConnection;
+
+    // Call API and replace temp with real data
+    (async () => {
+      try {
+        const created = await apiJson<any>('/api/cms/connections', 'POST', connection);
+        setConnections(prev => prev.map(c => c.id === tempId ? {
+          id: created.id,
+          name: created.name,
+          type: created.type,
+          url: created.url,
+          apiKey: created.apiKey,
+          status: created.status,
+          createdAt: created.createdAt,
+        } : c));
+      } catch (err) {
+        console.error('Failed to add connection:', err);
+        // Rollback on error
+        setConnections(prev => prev.filter(c => c.id !== tempId));
+      }
+    })();
+    
+    return temp;
   }, [logActivity]);
 
   const removeConnection = useCallback((id: string) => {
     const connection = connections.find(c => c.id === id);
     setConnections(prev => prev.filter(c => c.id !== id));
     setContent(prev => prev.filter(c => c.cmsId !== id));
+    setAssignments(prev => prev.filter(a => content.find(ci => ci.id === a.contentId)?.cmsId !== id));
     if (connection) {
       logActivity('Connection Removed', `Removed ${connection.type} connection: ${connection.name}`);
+    }
+    if (!id.startsWith('tmp_')) {
+      apiJson(`/api/cms/connections/${encodeURIComponent(id)}`, 'DELETE').catch(() => {});
     }
   }, [connections, logActivity]);
 
@@ -183,6 +233,10 @@ export function useCMS() {
 
     setContent(prev => [...prev, ...sampleContent]);
     logActivity('Content Loaded', `Loaded ${sampleContent.length} sample items for ${connection.name}`);
+
+    if (!cmsId.startsWith('tmp_')) {
+      apiJson('/api/cms/content/bulk', 'POST', { cmsId, items: sampleContent, replaceExisting: false }).catch(() => {});
+    }
   }, [connections, logActivity]);
 
   const updateContent = useCallback((id: string, updates: Partial<ContentItem>) => {
@@ -191,17 +245,39 @@ export function useCMS() {
     if (item) {
       logActivity('Content Updated', `Updated "${item.title}"`);
     }
+    if (!id.startsWith('tmp_')) {
+      apiJson(`/api/cms/content/${encodeURIComponent(id)}`, 'PATCH', updates).catch(() => {});
+    }
   }, [content, logActivity]);
 
   const addAssignment = useCallback((assignment: Omit<Assignment, 'id' | 'createdAt' | 'status'>) => {
-    const newAssignment: Assignment = {
+    const temp: Assignment = {
       ...assignment,
-      id: `assign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       status: 'pending',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
-    setAssignments(prev => [...prev, newAssignment]);
-    return newAssignment;
+    setAssignments(prev => [temp, ...prev]);
+
+    (async () => {
+      try {
+        const created = await apiJson<any>('/api/cms/assignments', 'POST', assignment);
+        setAssignments(prev => prev.map(a => (a.id === temp.id ? {
+          id: created.id,
+          contentId: created.contentId,
+          title: created.title,
+          description: created.description,
+          priority: created.priority,
+          suggestedAction: created.suggestedAction,
+          status: created.status,
+          createdAt: created.createdAt,
+        } : a)));
+      } catch {
+        // ignore
+      }
+    })();
+
+    return temp;
   }, []);
 
   const updateAssignment = useCallback((id: string, status: 'accepted' | 'dismissed') => {
@@ -209,6 +285,9 @@ export function useCMS() {
     const assignment = assignments.find(a => a.id === id);
     if (assignment) {
       logActivity('Assignment Updated', `${status === 'accepted' ? 'Accepted' : 'Dismissed'} assignment: ${assignment.title}`);
+    }
+    if (!id.startsWith('tmp_')) {
+      apiJson(`/api/cms/assignments/${encodeURIComponent(id)}`, 'PATCH', { status }).catch(() => {});
     }
   }, [assignments, logActivity]);
 
@@ -228,14 +307,11 @@ export function useCMS() {
     setAssignments([]);
     setActivityLog([]);
     setQueryHistory([]);
-    localStorage.removeItem('cms_connections');
-    localStorage.removeItem('cms_content');
-    localStorage.removeItem('cms_assignments');
-    localStorage.removeItem('cms_activity');
-    localStorage.removeItem('cms_query_history');
     localStorage.removeItem('groq_api_key');
     localStorage.removeItem('groq_model');
     localStorage.removeItem('groq_temp');
+
+    apiJson('/api/cms/clear', 'POST').catch(() => {});
   }, []);
 
   const loadDemoData = useCallback(() => {
@@ -372,6 +448,11 @@ export function useCMS() {
       added = Math.max(0, mapped.length - existing.length);
       return [...withoutOld, ...mapped];
     });
+
+    // Persist sync to DB by replacing content for the cmsId
+    if (!cmsId.startsWith('tmp_')) {
+      apiJson('/api/cms/content/bulk', 'POST', { cmsId, items: mapped, replaceExisting: true }).catch(() => {});
+    }
 
     logActivity('Live Sync', `Synced ${mapped.length} items from ${connection.name}`);
     return { added, updated };

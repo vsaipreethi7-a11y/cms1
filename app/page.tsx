@@ -16,6 +16,7 @@ import { useGroq } from '@/hooks/use-groq';
 import type { ContentItem, Assignment } from '@/lib/types';
 import { Bell } from 'lucide-react';
 import { Agents } from '@/components/pages/agents';
+import { AgentDashboard } from '@/components/pages/agent-dashboard';
 import type { Page } from '@/components/sidebar';
 
 function CMSNexusApp() {
@@ -34,6 +35,7 @@ function CMSNexusApp() {
       case 'search': return 'NLQ Search';
       case 'llm': return 'LLM Studio';
       case 'agents': return 'AI Agents';
+      case 'agentsDashboard': return 'AI Agent Dashboard';
       case 'settings': return 'Settings';
     }
   };
@@ -247,6 +249,10 @@ Return JSON: {"matches": [{"id": "content_id", "reason": "why this matches"}], "
               showToast={showToast} 
               connections={cms.connections}
             />
+          )}
+
+          {activePage === 'agentsDashboard' && (
+            <AgentDashboard connections={cms.connections} />
           )}
 
           {activePage === 'settings' && (

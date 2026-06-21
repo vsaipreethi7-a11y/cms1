@@ -2,6 +2,34 @@
 
 import { useCallback } from 'react';
 
+function tryParseJSON<T>(raw: string): T | null {
+  const cleaned = raw.replace(/```(?:json)?/gi, '').trim();
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    // Try to salvage the first JSON object/array from a mixed response.
+    const firstBrace = cleaned.indexOf('{');
+    const firstBracket = cleaned.indexOf('[');
+    const start =
+      firstBrace === -1 ? firstBracket :
+      firstBracket === -1 ? firstBrace :
+      Math.min(firstBrace, firstBracket);
+    if (start === -1) return null;
+
+    const lastBrace = cleaned.lastIndexOf('}');
+    const lastBracket = cleaned.lastIndexOf(']');
+    const end = Math.max(lastBrace, lastBracket);
+    if (end <= start) return null;
+
+    const candidate = cleaned.slice(start, end + 1);
+    try {
+      return JSON.parse(candidate) as T;
+    } catch {
+      return null;
+    }
+  }
+}
+
 export function useGroq() {
   const getModel = () => {
     if (typeof window === 'undefined') return 'llama-3.1-8b-instant';
@@ -39,8 +67,7 @@ export function useGroq() {
   const completeJSON = useCallback(async <T>(prompt: string, systemPrompt: string): Promise<T | null> => {
     try {
       const raw = await complete(prompt, systemPrompt + ' Always respond with valid JSON only.');
-      const cleaned = raw.replace(/```json|```/g, '').trim();
-      return JSON.parse(cleaned) as T;
+      return tryParseJSON<T>(raw);
     } catch {
       return null;
     }
